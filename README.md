@@ -47,7 +47,7 @@ Yosys 0.33, generic technology mapping, `check -assert` clean:
 
 | | |
 |---|---|
-| Cells | 16 735 |
+| Cells | 17 197 |
 | Flip-flops | 2 478 |
 | Inferred latches | 0 |
 | Yosys `check` problems | 0 |
