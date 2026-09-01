@@ -1,0 +1,12 @@
+`verilator_config
+
+// Deliberately unconnected observation outputs.  ptp_clock exports full
+// Q16.16 time and gcl_ctrl exports sequencer state for debug and for reuse
+// in other integrations; this integration needs neither.
+lint_off -rule PINCONNECTEMPTY -file "rtl/tsn_sched_top.v"
+
+// Intentional fixed-point truncation.  fb_q8 is Q24.8: bits [7:0] are the
+// discarded fraction (floor, so frag_bytes rounds down -- the safe
+// direction) and [33:22] cannot be set because rem_eff is bounded by the
+// 32-bit window interval.
+lint_off -rule UNUSEDSIGNAL -file "rtl/guard_band.v" -match "*fb_q8*"

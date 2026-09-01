@@ -1,0 +1,16 @@
+[options]
+mode bmc
+depth 40
+multiclock off
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal ../rtl/guard_band.v
+read -formal gb_props.sv
+prep -top gb_props
+
+[files]
+../rtl/guard_band.v
+gb_props.sv

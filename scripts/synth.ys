@@ -1,0 +1,8 @@
+read_verilog -defer rtl/ptp_clock.v rtl/gcl_ctrl.v rtl/cbs_shaper.v \
+                    rtl/guard_band.v rtl/tx_arbiter.v rtl/tx_engine.v \
+                    rtl/csr_axil.v rtl/tsn_sched_top.v
+hierarchy -check -top tsn_sched_top
+proc; opt; fsm; opt; memory; opt
+techmap; opt
+stat
+check -assert
