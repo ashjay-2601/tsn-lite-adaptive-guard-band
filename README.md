@@ -10,8 +10,8 @@ full `maxSDU / linkRate` before every gate close, unconditionally. This design
 replaces that constant with a per-frame decision based on the actual
 head-of-line frame length and whether its traffic class is preemptable.
 
-**Result: +13.1% best-effort goodput at a 20 µs schedule cycle, rising to
-+35.5% at 12 µs, with time-triggered latency jitter bit-identical to the
+**Result: +13.0% best-effort goodput at a 20 µs schedule cycle, rising to
++37.7% at 12 µs, with time-triggered latency jitter bit-identical to the
 baseline.**
 
 ---
@@ -22,16 +22,16 @@ Same netlist, both runs, switched by one CSR bit (`CTRL[1]`). 10 Gb/s link,
 1522 B MTU, 100 schedule cycles per point. TT class 7 = 500 B every 10 µs,
 BE class 0 = saturating, uniform 64–1522 B.
 
-| BE window | Cycle | Static (Gb/s) | Adaptive (Gb/s) | Gain | Jitter static | Jitter adaptive | Fragments |
-|---:|---:|---:|---:|---:|---:|---:|---:|
-| 3 000 ns | 12 µs | 3.580 | 4.851 | **+35.5%** | 4212 ns | 2216 ns | 178 |
-| 5 000 ns | 16 µs | 5.158 | 6.106 | **+18.4%** | 6216 ns | 4212 ns | 178 |
-| 7 000 ns | 20 µs | 6.063 | 6.854 | **+13.1%** | 411 ns | 411 ns | 174 |
-| 10 000 ns | 26 µs | 6.944 | 7.545 | +8.7% | 9415 ns | 9415 ns | 181 |
-| 15 000 ns | 36 µs | 7.745 | 8.188 | +5.7% | 8416 ns | 8416 ns | 174 |
-| 20 000 ns | 46 µs | 8.189 | 8.552 | +4.4% | 9420 ns | 9420 ns | 186 |
-| 30 000 ns | 66 µs | 8.709 | 8.947 | +2.7% | 9415 ns | 9415 ns | 180 |
-| 50 000 ns | 106 µs | 9.145 | 9.290 | +1.6% | 9415 ns | 9415 ns | 180 |
+| BE window | Cycle | Static (Gb/s) | Adaptive (Gb/s) | Gain | Jitter static | Jitter adaptive |
+|---:|---:|---:|---:|---:|---:|---:|
+| 3 000 ns | 12 µs | 3.399 | 4.679 | **+37.7%** | 3803 ns | 1806 ns |
+| 5 000 ns | 16 µs | 4.954 | 5.881 | **+18.7%** | 5806 ns | 3803 ns |
+| 7 000 ns | 20 µs | 5.840 | 6.599 | **+13.0%** | 1 ns | 1 ns |
+| 10 000 ns | 26 µs | 6.683 | 7.260 | +8.6% | 9005 ns | 9005 ns |
+| 20 000 ns | 46 µs | 7.904 | 8.226 | +4.1% | 9011 ns | 9011 ns |
+| 50 000 ns | 106 µs | 8.789 | 8.934 | +1.7% | 9005 ns | 9005 ns |
+
+Assertion failures across all 12 runs: **0**.
 
 The gain scales inversely with window length, which is the expected physics:
 the static guard band is a fixed cost per gate close, so it dominates at fine
@@ -39,15 +39,13 @@ schedule granularity. TT jitter is never degraded, and at the two shortest
 cycles it *improves*, because fewer BE frames are left stranded across a
 boundary.
 
-Assertion failures across all 16 runs: **0**.
-
 ## Implementation
 
 Yosys 0.33, generic technology mapping, `check -assert` clean:
 
 | | |
 |---|---|
-| Cells | 17 197 |
+| Cells | 16 735 |
 | Flip-flops | 2 478 |
 | Inferred latches | 0 |
 | Yosys `check` problems | 0 |
@@ -155,3 +153,27 @@ Not done yet: VOQ manager and shared packet buffer (the queue model currently
 lives in the testbench), frame parser and VLAN/PCP decode, 4×4 crossbar, RX
 reassembly, CDC between the recovered RX clock and the core domain, and the
 OpenLane push to GDSII.
+
+## Datapath (step 13)
+
+The queue model now lives in RTL rather than the testbench.
+
+| Module | Role |
+|---|---|
+| `frame_parser.v` | 64-bit AXI-Stream; VLAN TPID detect, PCP -> class on beat 1, byte count from a tkeep popcount |
+| `pkt_buffer.v` | 128 x 64 B shared cells, free-list bitmap with priority encoder, per-frame `next_ptr` chain |
+| `voq_manager.v` | 8 descriptor FIFOs; allocates and chains on ingress, walks and frees on egress, rewrites the head descriptor in place on a preemption so the frame resumes at the exact byte |
+| `tsn_port_top.v` | Integrates the above with `tsn_sched_top` unmodified in function |
+
+`tb_port.v` injects 18 VLAN-tagged frames across two phases (with and without
+preemption) and checks every byte against a per-class reference model.
+Result: 16 781 bytes injected, 16 781 received, 0 cells leaked, 0 errors.
+
+### Known gaps
+- `pkt_buffer` synthesises to ~65 600 flops because Yosys flattens the 8 KB
+  array. It must become an SRAM macro before any area number is meaningful.
+- The egress bus carries no `tlast`/`tkeep`, so a frame's final partial word is
+  padded. The testbench compensates by tracking frame lengths; real silicon
+  must carry them.
+- CBS is configured with zero slopes in all experiments, so the shaper is
+  synthesised but never exercised.

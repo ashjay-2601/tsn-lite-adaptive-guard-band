@@ -1,65 +1,33 @@
-# Bug log
 
-Three implementation hazards found during bring-up, each reproducible by
-reverting a single line. Reproduction steps in section 11 of the build notes.
+## 7. Phantom start on a queue that just emptied      [found by integration]
+tsn_sched_top re-qualified `start` against the live gate and credit state but
+not against live q_nonempty. When a queue emptied, the three-cycle
+arbiter/guard-band/engine shadow allowed one further start with a stale
+length. The resulting phantom tx_done decremented d_cnt from 0 to 15, making
+the queue appear permanently occupied and corrupting the cell free list.
+Structurally unreachable by the original testbench, whose queue model was
+always backlogged and never emptied.
 
-## 1. Pipeline shadow on the start decision
-tx_arbiter registers its candidate, guard_band registers its verdict, and
-tx_engine registers its start -- three clocks between sampling the gate and
-driving the wire. A gate closing inside that shadow launched a frame onto a
-closed gate with a stale length (observed: an 1128 B frame transmitting as
-1400 B). Fixed by re-qualifying start against the live gate and credit state
-plus a candidate-stability compare. Reverting the fix: ~39 000 assertion
-failures.
+## 8. Start racing completion -- orphaned residual     [found by integration]
+A start could be issued on the same clock edge as the tx_done of the previous
+frame. The queue manager arms its read cursor from d_cell[hd_ptr] on that
+edge, while hd_ptr is being incremented by the pop -- so the burst read the
+wrong descriptor and the occupancy counts desynchronised. Symptom: a 101-byte
+residual was orphaned and the port deadlocked for the remaining 760 us of the
+run, leaking one cell.
 
-## 2. Unaccounted pipeline latency in the window fit    [found by simulation]
-remaining_ns is sampled two clocks before the serialiser moves, making every
-decision 12.8 ns optimistic. Fixed with PIPE_LAT_NS = 13.
+Fixed by adding !tx_done to the start condition, enforcing one idle cycle
+between bursts. Cost: BE goodput fell from 6.063 to 5.840 Gb/s at a 20 us
+cycle (-3.7%), and the headline adaptive-vs-static gain from 13.05% to 12.99%.
+Accepting a bounded ~0.6%-per-frame throughput loss to remove an unbounded
+deadlock is the right trade, but it is a real cost and the README numbers were
+restated rather than left at their pre-fix values.
 
-Isolating this experimentally gave an unexpected result. Reverting
-PIPE_LAT_NS to 0 alone does NOT fail the testbench. A six-way parameter sweep
-showed why: OVERHEAD_B = 20 budgets 20 bytes of preamble and IPG into every
-transmission-time estimate, but tx_engine serialises only frame bytes and
-never transmits preamble or IPG. That reserves 16 ns of slack per decision,
-which exceeds the 12.8 ns of pipeline latency and masks it entirely.
-
-With OVERHEAD_B forced to 0, PIPE_LAT_NS = 0 fails and PIPE_LAT_NS = 13
-passes -- so the compensation is real and correct, but redundant given the
-overhead budget. Two independent safety mechanisms cover the same hazard and
-the testbench cannot distinguish them. That redundancy is a coverage gap, not
-a virtue: a future change that trims OVERHEAD_B to reclaim bandwidth would
-silently remove the margin without any test failing.
-
-## 3. Fragment not aligned to the serialiser width      [not reachable by test]
-The datapath moves 8 B/clk, so a cut at an unaligned byte count is rounded up
-on the wire past the boundary. frag_bytes is floored to a BYTES_PER_CLK
-multiple. Reverting this produces no failures under the current traffic
-profile even with all other margins removed -- the hazard is real in
-principle but this stimulus does not reach it. Flagged as an open coverage
-gap requiring a directed test with cut points deliberately placed off an
-8-byte boundary.
-
-## 4. Async reset containing a synchronous clear (found by synthesis)
-csr_axil used `if (!rst_n || stat_clr)` inside an always @(posedge clk or
-negedge rst_n) block. Icarus simulated it correctly; Yosys rejected it as
-"multiple edge sensitive events". A sim/synth mismatch invisible to
-simulation.
-
-## 5. GCL_LEN=16 collapses the schedule (found by lint)
-gcl_len is 5 bits; the wrap comparison read only [3:0]. At the documented
-maximum of 16 entries the index never advances and the schedule silently
-becomes a single window. The testbench uses 4 entries, so simulation could
-not reach it. Found by Verilator UNUSEDSIGNAL on gcl_len[4].
-
-## 6. AXI4-Lite byte strobes ignored (found by lint)
-s_wstrb was declared and never read, so a partial-width write would update all
-32 bits of a register. Now rejected with SLVERR; documented as 32-bit access
-only.
-
-## Coverage gaps found by this exercise
-Attempting to reproduce each fix by reverting it revealed that only bug 1 is
-independently observable. Bugs 2 and 3 are masked by conservative margins
-elsewhere in the design. The randomised testbench passes with either
-mechanism removed, which means it is not actually verifying them. Closing
-this needs directed tests that null out competing margins and place cut
-points at deliberately hostile offsets.
+## 9. Datapath bugs during VOQ bring-up               [found by integration]
+- Read cursor armed one cycle after tx_busy, dropping the final word of every
+  frame (tx_engine asserts busy for exactly ceil(len/8) clocks).
+- Allocator handed out a cell it had already allocated, producing a cell
+  linked to itself. Fixed by making allocator control combinational.
+- rc_pend persisted across transmissions, walking a freed chain.
+- The 802.3br resume cursor was written back one word stale, because tx_done
+  shares a clock edge with the final read beat.

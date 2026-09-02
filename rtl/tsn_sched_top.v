@@ -171,8 +171,15 @@ module tsn_sched_top #(
                        (cand_class == cand_class_q) &&
                        (cand_len   == cand_len_q);
 
-    wire start = !busy && cand_valid_q && gb_allow && cand_stable &&
-                 gate_open[cand_class_q] && credit_ok[cand_class_q];
+    // !tx_done enforces one idle cycle between bursts.  Without it a start can
+    // land on the same edge as the completion of the previous frame, and the
+    // queue manager then arms its read cursor from a head pointer that is
+    // being incremented on that very edge -- it reads the wrong descriptor and
+    // the occupancy counts desynchronise.  One cycle of dead time per frame is
+    // ~0.6% at 1 kB frames; a race that orphans a residual is unbounded.
+    wire start = !busy && !tx_done && cand_valid_q && gb_allow && cand_stable &&
+                 gate_open[cand_class_q] && credit_ok[cand_class_q] &&
+                 q_nonempty[cand_class_q];
 
     tx_engine #(.BYTES_PER_CLK(BYTES_PER_CLK)) u_tx (
         .clk(clk), .rst_n(rst_n),
