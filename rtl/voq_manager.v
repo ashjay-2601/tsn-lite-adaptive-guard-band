@@ -60,6 +60,8 @@ module voq_manager #(
 
     output reg                 m_tvalid,
     output wire [63:0]         m_tdata,
+    output reg  [7:0]          m_tkeep,
+    output reg                 m_tlast,
 
     output wire                alloc_req,
     input  wire [ADDR_W-1:0]   alloc_cell,
@@ -130,6 +132,12 @@ module voq_manager #(
     reg [2:0]        rc_word;
     reg              rc_pend;
     reg              rd_armed;
+    // Bytes left in the frame currently on the wire.  Needed to place tlast
+    // and to build tkeep for a final partial word -- a 1037 B frame ends with
+    // 5 valid lanes, and without tkeep the consumer cannot know that.
+    reg [13:0]       fr_rem;
+    reg [7:0]        keep_d1;
+    reg              last_d1;
 
     wire rd_start = tx_busy && !rd_armed;
 
@@ -148,6 +156,11 @@ module voq_manager #(
     // asserted for a phantom burst in the scheduler's pipeline shadow; letting
     // that drive the cursor walks a freed chain and corrupts the free list.
     wire              rd_beat  = tx_busy && q_nonempty[tx_class];
+
+    // bytes left in this frame: from the descriptor on the first beat of a
+    // burst, from the running counter thereafter
+    wire [13:0] cur_fr = rd_start ? d_rem[tx_class*DEPTH + hd_ptr[tx_class]]
+                                  : fr_rem;
 
     // ------------------------------------------------- combinational control
     assign alloc_req = (at_sop && alloc_ok) || at_wrap;
@@ -181,6 +194,8 @@ module voq_manager #(
             cur_cell <= 0; cur_word <= 3'd0; wr_class <= 3'd0;
             rd_cell <= 0; rd_word <= 3'd0;
             rc_cell <= 0; rc_word <= 3'd0; rc_pend <= 1'b0; rd_armed <= 1'b0;
+            fr_rem <= 14'd0; keep_d1 <= 8'd0; last_d1 <= 1'b0;
+            m_tkeep <= 8'd0; m_tlast <= 1'b0;
             stat_drops <= 16'd0; stat_enq <= 16'd0;
             for (i = 0; i < 8; i = i + 1) begin
                 hd_ptr[i] <= 0; tl_ptr[i] <= 0; d_cnt[i] <= 0;
@@ -193,6 +208,9 @@ module voq_manager #(
             wr_en    <= 1'b0;
             rd_en    <= 1'b0;
             m_tvalid <= rd_en;
+            m_tkeep  <= keep_d1;
+            m_tlast  <= last_d1;
+            last_d1  <= 1'b0;
 
             // ===================== WRITE =====================
             if (at_sop) begin
@@ -258,6 +276,11 @@ module voq_manager #(
                 rc_cell  <= eff_cell;
                 rc_word  <= eff_word + 3'd1;
                 rc_pend  <= (eff_word == 3'd7);
+                // frame-end bookkeeping, delayed one cycle to match rd_data
+                fr_rem  <= (cur_fr > 14'd8) ? (cur_fr - 14'd8) : 14'd0;
+                last_d1 <= (cur_fr <= 14'd8);
+                keep_d1 <= (cur_fr >= 14'd8) ? 8'hFF :
+                           ((8'h01 << cur_fr[2:0]) - 8'h01);
             end
 
             // =================== COMPLETION ==================

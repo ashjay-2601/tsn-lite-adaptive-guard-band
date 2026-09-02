@@ -1,6 +1,6 @@
 `timescale 1ns/1ps
 // ============================================================================
-// tb_port.v -- ingress-to-egress loopback for the datapath
+// tb_cdc.v -- ingress-to-egress loopback for the datapath
 //
 // Injects real VLAN-tagged frames, checks:
 //   1. the parser routes each frame to the PCP-derived class
@@ -8,11 +8,17 @@
 //   3. the cell pool returns to empty (no leak, no double free)
 //   4. preempted frames resume from the correct byte
 // ============================================================================
-module tb_port;
+module tb_cdc;
 
-    localparam real CLK_NS = 6.4;
-    reg clk = 0, rst_n = 0;
-    always #(CLK_NS/2.0) clk = ~clk;
+    // Core at 156.25 MHz, RX recovered clock deliberately offset.  Equal
+    // frequencies would keep a fixed phase and never exercise the crossing;
+    // 6.35 vs 6.4 ns is ~7800 ppm, far worse than any real link, so every
+    // possible phase alignment is swept many times during the run.
+    localparam real CLK_NS    = 6.4;
+    localparam real RX_CLK_NS = 6.35;
+    reg clk = 0, rx_clk = 0, rst_n = 0;
+    always #(CLK_NS/2.0)    clk    = ~clk;
+    always #(RX_CLK_NS/2.0) rx_clk = ~rx_clk;
 
     reg  [11:0] awaddr = 0; reg awvalid = 0, wvalid = 0;
     reg  [31:0] wdata = 0;
@@ -28,10 +34,10 @@ module tb_port;
     wire [47:0] time_ns; wire [7:0] gate_open, q_nonempty;
     wire [31:0] remaining_ns; wire tx_busy; wire [2:0] tx_class;
     wire [1:0]  tx_smd; wire [7:0] cells_used;
-    wire [15:0] stat_drops, stat_enq;
+    wire [15:0] stat_drops, stat_enq, fifo_drops;
 
-    tsn_port_top dut (
-        .clk(clk), .rst_n(rst_n),
+    tsn_port_cdc_top dut (
+        .core_clk(clk), .rx_clk(rx_clk), .arst_n(rst_n),
         .s_awaddr(awaddr), .s_awvalid(awvalid), .s_awready(awready),
         .s_wdata(wdata), .s_wstrb(4'hF), .s_wvalid(wvalid), .s_wready(wready),
         .s_bresp(bresp), .s_bvalid(bvalid), .s_bready(1'b1),
@@ -41,6 +47,7 @@ module tb_port;
         .rx_tready(rx_tready), .rx_tlast(rx_tlast),
         .tx_tvalid(tx_tvalid), .tx_tdata(tx_tdata),
         .tx_tkeep(tx_tkeep), .tx_tlast(tx_tlast),
+        .stat_fifo_drops(fifo_drops),
         .time_ns(time_ns), .gate_open(gate_open),
         .remaining_ns(remaining_ns), .tx_busy(tx_busy), .tx_class(tx_class),
         .tx_smd(tx_smd), .q_nonempty(q_nonempty), .cells_used(cells_used),
@@ -101,14 +108,14 @@ module tb_port;
                 ref_wr[pcp] = ref_wr[pcp] + 1;
                 tot_wr = tot_wr + 1;
             end
-            @(posedge clk);
+            @(posedge rx_clk);
             rx_tdata  <= beat;
             rx_tkeep  <= keep;
             rx_tvalid <= 1'b1;
             rx_tlast  <= ((b + nb) >= len);
             b = b + nb;
-            @(posedge clk);
-            while (!rx_tready) @(posedge clk);
+            @(posedge rx_clk);
+            while (!rx_tready) @(posedge rx_clk);
             rx_tvalid <= 1'b0; rx_tlast <= 1'b0;
         end
         flen_q[pcp*64 + flen_wr[pcp]] = len;
@@ -160,7 +167,7 @@ module tb_port;
         axi_wr(12'h008, 32'd0); axi_wr(12'h00C, 32'd0);
         axi_wr(12'h000, 32'h1);             // enable
 
-        $display("\n=== datapath loopback ===");
+        $display("\n=== CDC loopback: rx_clk %0.2f ns / core %0.2f ns ===", RX_CLK_NS, CLK_NS);
 
         // one frame per class, mixed lengths incl. cell-boundary cases
         send_frame(64,   3'd0);
@@ -193,13 +200,16 @@ module tb_port;
         $display("bytes injected  : %0d", tot_wr);
         $display("bytes received  : %0d", tot_rd);
         $display("cells still used: %0d", cells_used);
+        $display("fifo drops      : %0d", fifo_drops);
+        if (fifo_drops !== 0) begin
+            $display("[FAIL] CDC FIFO overflowed"); errors=errors+1; end
 
         if (stat_enq !== 18)  begin $display("[FAIL] expected 18 enqueues, got %0d", stat_enq); errors=errors+1; end
         if (stat_drops !== 0) begin $display("[FAIL] unexpected drops");    errors=errors+1; end
         if (tot_rd !== tot_wr)begin $display("[FAIL] byte count mismatch"); errors=errors+1; end
         if (cells_used !== 0) begin $display("[FAIL] cell leak: %0d cells still allocated", cells_used); errors=errors+1; end
 
-        if (errors == 0) $display("\n*** PASS: datapath clean ***\n");
+        if (errors == 0) $display("\n*** PASS: CDC datapath clean ***\n");
         else             $display("\n*** FAIL: %0d errors ***\n", errors);
         $finish;
     end
