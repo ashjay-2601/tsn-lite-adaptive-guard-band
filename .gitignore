@@ -1,6 +1,6 @@
 results/*.vvp
 results/*.vcd
 runs/
+obj_dir/
 *.log
 __pycache__/
-obj_dir/
