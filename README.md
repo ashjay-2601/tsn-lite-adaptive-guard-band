@@ -177,3 +177,44 @@ Result: 16 781 bytes injected, 16 781 received, 0 cells leaked, 0 errors.
   must carry them.
 - CBS is configured with zero slopes in all experiments, so the shaper is
   synthesised but never exercised.
+
+## Verification summary
+
+| Bench | Tool | Result |
+|---|---|---|
+| `tb_sched.v` | Icarus | A/B guard band, 0 assertion failures |
+| `tb_sweep.v` | Icarus | 12 configs, 0 failures |
+| `tb_port.v` | Icarus | 16 781 B in / out, 0 cells leaked |
+| `tb_cdc.v` | Icarus | two clock domains, 0 FIFO drops |
+| `tb_cbs.v` | Icarus | Qav unit test, 25.01% achieved vs 25.00% configured |
+| `tb_cbs_sys.v` | Icarus | Qav share enforced 10-80% through the CSR path |
+| `cocotb/test_gb.py` | cocotb + Icarus | 20 000 random stimuli, 0 mismatches vs reference model |
+
+### Functional coverage (cocotb)
+Cross of frame-length bucket x window pressure x outcome. Window pressure is
+`remaining_ns` relative to what the frame needs, not a raw time bin -- a
+1500 B frame and a 64 B frame with the same nanoseconds left are entirely
+different cases.
+
+**30/30 reachable bins hit (100%).** 18 of the 48 total bins are structurally
+unreachable and are excluded rather than counted as misses: a frame that fits
+is never cut, a frame that does not fit is never sent whole, and a cut needs
+64 B on both sides so most "tiny" bucket cuts cannot exist.
+
+### Code coverage (Verilator)
+**53.0% (295/550 points)** line and toggle across the scheduler. Not high;
+the untaken points are dominated by CSR address decode branches and clamp
+paths that the current stimulus does not drive.
+
+### Qav shaper
+Previously configured with zero slopes in every experiment, so the block was
+synthesised but never exercised. Now covered by a directed unit test and a
+system test that programs real slopes over AXI4-Lite:
+
+| Configured share | Measured |
+|---:|---:|
+| 10% | 10.17% |
+| 25% | 25.41% |
+| 40% | 40.66% |
+| 60% | 60.99% |
+| 80% | 81.28% |

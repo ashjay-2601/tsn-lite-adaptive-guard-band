@@ -31,3 +31,38 @@ restated rather than left at their pre-fix values.
 - rc_pend persisted across transmissions, walking a freed chain.
 - The 802.3br resume cursor was written back one word stale, because tx_done
   shares a clock edge with the final read beat.
+
+## CORRECTION to item 3 (fragment alignment)                [found by cocotb]
+Item 3 recorded that the 8-byte fragment alignment could not be shown to
+matter, and flagged it as an open coverage gap. That conclusion was wrong.
+
+The cocotb reference model bins the cut point BEFORE the alignment mask is
+applied. Over 20,000 random stimuli it reports:
+
+    pre-alignment cut point mod 8: {0:34, 1:52, 2:41, 3:53, 4:46, 5:28, 6:50, 7:52}
+    322/356 cuts (90.4%) land off an 8-byte boundary
+
+So the mask fires on 90% of all cuts and is firmly load-bearing. The reason
+removing it did not fail the Verilog testbench is the same reason PIPE_LAT_NS
+did not: OVERHEAD_B reserves 16 ns per decision that the serialiser never
+spends, and that slack absorbs the overrun.
+
+The earlier measurement was circular -- it binned frag_bytes, which is the
+DUT's own output AFTER masking, so of course every value was aligned. Binning
+the DUT's output to decide whether the DUT's logic matters proves nothing.
+The reference model has to compute the pre-masked value independently.
+
+## 10. Two simulators disagree on the same RTL       [found by cross-simulation]
+Running tb_sched.v under Verilator 5.020 reports a 13.51% adaptive-vs-static
+goodput gain; Icarus Verilog 12.0 reports 12.99% on identical sources. The
+assertion count is 0 in both, so no gate is violated either way.
+
+A numeric difference between simulators on the same RTL points at a race in
+the testbench -- most likely the blocking assignments used for statistics
+counters inside always @(posedge clk) blocks, which have no defined ordering
+against the non-blocking updates they observe. The RTL itself uses
+non-blocking assignments throughout.
+
+Not yet root-caused. Recorded here rather than quietly reporting whichever
+number looks better; the README quotes the Icarus figure and names the
+simulator and version.

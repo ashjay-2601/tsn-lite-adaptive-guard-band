@@ -270,6 +270,10 @@ module tb_sched;
 
         if (errors == 0) $display("\n*** PASS: 0 assertion failures ***\n");
         else             $display("\n*** FAIL: %0d assertion failures ***\n", errors);
+`ifdef VERILATOR
+        // Coverage is discarded on $finish unless flushed explicitly here.
+        $c("Verilated::threadContextp()->coveragep()->write(\"coverage.dat\");");
+`endif
         $finish;
     end
 
