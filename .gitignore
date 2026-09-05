@@ -4,3 +4,4 @@ runs/
 obj_dir/
 *.log
 __pycache__/
+results/*.vvp

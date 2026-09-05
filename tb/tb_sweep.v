@@ -36,7 +36,12 @@ module tb_sweep;
         awvalid<=0; wvalid<=0; while(!bvalid) @(posedge clk); @(posedge clk);
     end endtask
 
-    integer bewin, mode, seed, errors;
+    integer bewin, mode, errors;
+    // Deterministic LFSR -- $random(seed) is not portable across simulators.
+    reg [31:0] lfsr;
+    function [31:0] lfsr_next(input [31:0] v);
+        lfsr_next = {v[0], v[31:1]} ^ (32'h04C11DB7 & {32{v[0]}});
+    endfunction
     integer be_bytes, tt_count, lat_min, lat_max, preempts;
     integer cycle_ns, nsim;
     reg run_active=0, tt_inflight=0;
@@ -50,7 +55,8 @@ module tb_sweep;
                 next_tt<=next_tt+10000;
             end
             if(qlen[0]==0) begin
-                qlen[0]<=14'd64+($unsigned($random(seed))%1459); qne[0]<=1;
+                lfsr <= lfsr_next(lfsr);
+                qlen[0]<=14'd64+(lfsr[23:8]%1459); qne[0]<=1;
             end
             if(tx_done) begin
                 if(tx_done_trunc) begin
@@ -80,7 +86,7 @@ module tb_sweep;
         cycle_ns = 2*(3000 + bewin);
         nsim = (100*cycle_ns)/6.4;
         for(i=0;i<8;i=i+1) qlen[i]=0;
-        next_tt=200; seed=32'h1234_5678; errors=0;
+        next_tt=200; lfsr=32'h1234_5678; errors=0;
         be_bytes=0; tt_count=0; lat_min=1000000; lat_max=0; preempts=0;
         repeat(20) @(posedge clk); rst_n=1; repeat(5) @(posedge clk);
         axi_wr(12'h004,32'd4);

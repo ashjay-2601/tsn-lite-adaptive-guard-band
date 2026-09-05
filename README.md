@@ -10,9 +10,10 @@ full `maxSDU / linkRate` before every gate close, unconditionally. This design
 replaces that constant with a per-frame decision based on the actual
 head-of-line frame length and whether its traffic class is preemptable.
 
-**Result: +13.0% best-effort goodput at a 20 µs schedule cycle, rising to
-+37.7% at 12 µs, with time-triggered latency jitter bit-identical to the
-baseline.**
+**Result: +12.8% best-effort goodput at a 20 µs schedule cycle, rising to
++36.1% at 12 µs, with time-triggered latency jitter bit-identical to the
+baseline. Verified byte-identical under both Icarus Verilog 12.0 and
+Verilator 5.020.**
 
 ---
 
@@ -24,14 +25,15 @@ BE class 0 = saturating, uniform 64–1522 B.
 
 | BE window | Cycle | Static (Gb/s) | Adaptive (Gb/s) | Gain | Jitter static | Jitter adaptive |
 |---:|---:|---:|---:|---:|---:|---:|
-| 3 000 ns | 12 µs | 3.399 | 4.679 | **+37.7%** | 3803 ns | 1806 ns |
-| 5 000 ns | 16 µs | 4.954 | 5.881 | **+18.7%** | 5806 ns | 3803 ns |
-| 7 000 ns | 20 µs | 5.840 | 6.599 | **+13.0%** | 1 ns | 1 ns |
-| 10 000 ns | 26 µs | 6.683 | 7.260 | +8.6% | 9005 ns | 9005 ns |
-| 20 000 ns | 46 µs | 7.904 | 8.226 | +4.1% | 9011 ns | 9011 ns |
-| 50 000 ns | 106 µs | 8.789 | 8.934 | +1.7% | 9005 ns | 9005 ns |
+| 3 000 ns | 12 µs | 3.440 | 4.682 | **+36.1%** | 3803 ns | 1806 ns |
+| 5 000 ns | 16 µs | 4.990 | 5.875 | **+17.7%** | 5806 ns | 3803 ns |
+| 7 000 ns | 20 µs | 5.852 | 6.599 | **+12.8%** | 1 ns | 1 ns |
+| 10 000 ns | 26 µs | 6.686 | 7.258 | +8.6% | 9005 ns | 9005 ns |
+| 20 000 ns | 46 µs | 7.903 | 8.225 | +4.1% | 9011 ns | 9011 ns |
+| 50 000 ns | 106 µs | 8.783 | 8.930 | +1.7% | 9005 ns | 9005 ns |
 
-Assertion failures across all 12 runs: **0**.
+Assertion failures across all 12 runs: **0**. Every figure reproduces
+byte-for-byte under Icarus Verilog 12.0 and Verilator 5.020.
 
 The gain scales inversely with window length, which is the expected physics:
 the static guard band is a fixed cost per gate close, so it dominates at fine

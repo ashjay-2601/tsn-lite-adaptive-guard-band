@@ -94,7 +94,17 @@ module tb_sched;
     endtask
 
     // ------------------------------------------------------------ queue model
-    integer seed;
+    // Deterministic 32-bit Galois LFSR.  $random(seed) is NOT portable: the
+    // IEEE algorithm is specified in an annex and simulators implement the
+    // seeded form differently, so Icarus and Verilator produce different
+    // frame-length sequences from the same seed and therefore different
+    // goodput.  An explicit LFSR makes the stimulus identical everywhere,
+    // which is what "reproducible seeds" in a verification plan has to mean.
+    reg [31:0] lfsr;
+    function [31:0] lfsr_next(input [31:0] v);
+        lfsr_next = {v[0], v[31:1]} ^ (32'h04C11DB7 & {32{v[0]}});
+    endfunction
+
     reg [47:0] next_tt, tt_enq_time;
     reg        tt_inflight;
 
@@ -125,7 +135,8 @@ module tb_sched;
             end
             // ---- best-effort is always backlogged ----
             if (qlen[0] == 14'd0) begin
-                qlen[0] <= 14'd64 + ($unsigned($random(seed)) % 1459);
+                lfsr    <= lfsr_next(lfsr);
+                qlen[0] <= 14'd64 + (lfsr[23:8] % 1459);
                 qne[0]  <= 1'b1;
             end
             // ---- completion handling ----
@@ -202,7 +213,7 @@ module tb_sched;
         rst_n = 1'b0; run_active = 1'b0;
         qlen[0]=0; qlen[1]=0; qlen[2]=0; qlen[3]=0;
         qlen[4]=0; qlen[5]=0; qlen[6]=0; qlen[7]=0;
-        next_tt = 200; tt_inflight = 1'b0; seed = 32'h1234_5678;
+        next_tt = 200; tt_inflight = 1'b0; lfsr = 32'h1234_5678;
         reset_counters;
         repeat (20) @(posedge clk);
         rst_n = 1'b1;

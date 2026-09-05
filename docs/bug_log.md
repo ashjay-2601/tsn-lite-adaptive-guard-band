@@ -66,3 +66,31 @@ non-blocking assignments throughout.
 Not yet root-caused. Recorded here rather than quietly reporting whichever
 number looks better; the README quotes the Icarus figure and names the
 simulator and version.
+
+## RESOLVED — item 10 (simulator disagreement)          [root-caused, step 16]
+Verilator reported a 13.51% gain where Icarus reported 12.99% on identical
+RTL. My recorded suspicion was a race in the testbench's blocking-assignment
+statistics counters. That was wrong.
+
+The cause is `$random(seed)` in the best-effort length generator. The IEEE
+1364 algorithm for $random lives in an informative annex, and simulators
+implement the seeded form differently -- so Icarus and Verilator produced
+*different frame-length sequences from the same seed*. The RTL was never in
+disagreement; the two runs were simply not the same experiment.
+
+Replaced with an explicit 32-bit Galois LFSR in tb_sched.v and tb_sweep.v.
+Both simulators now produce byte-identical results:
+
+    Icarus    : BE bytes 1463019 / 1649735, gain 12.76%
+    Verilator : BE bytes 1463019 / 1649735, gain 12.76%
+    sweep CSV  identical on every field, both tools
+
+Headline numbers restated again as a result (12.99% -> 12.76% at a 20 us
+cycle), because the stimulus changed.
+
+Two lessons worth stating plainly. First, "reproducible seeds" in a
+verification plan is meaningless if the PRNG itself is not portable -- the
+seed reproduces a run only on the same simulator and version. Second, a
+cross-simulator numeric mismatch is worth chasing even when both runs pass
+every assertion: nothing was broken here, but for weeks the project quoted a
+number that depended on which tool happened to run it.
