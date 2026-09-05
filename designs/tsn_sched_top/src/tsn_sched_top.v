@@ -83,8 +83,6 @@ module tsn_sched_top #(
 
     wire        busy;
     wire [7:0]  credit_ok;
-    wire [255:0] credit_flat;
-    wire [127:0] inv_send_flat;
 
     // ------------------------------------------------------------------ time
     ptp_clock #(.INCR_Q16(PTP_INCR_Q16)) u_ptp (
@@ -119,7 +117,7 @@ module tsn_sched_top #(
                 .q_nonempty(q_nonempty[c]),
                 .transmitting(busy && (tx_class == c[2:0])),
                 .credit_ok(credit_ok[c]),
-                .credit_q16(credit_flat[c*32 +: 32])
+                .credit_q16()
             );
         end
     endgenerate
@@ -129,40 +127,10 @@ module tsn_sched_top #(
         .clk(clk), .rst_n(rst_n),
         .q_nonempty(q_nonempty), .gate_open(gate_open),
         .credit_ok(credit_ok), .preemptable(cfg_preempt_mask),
-        .inhibit(inhibit),
         .q_len_flat(q_len_flat),
         .cand_valid(cand_valid), .cand_class(cand_class),
         .cand_len(cand_len), .cand_preempt(cand_preempt)
     );
-
-    // ---- guard-band refusal feedback ---------------------------------------
-    // When the guard band refuses a nominated class, mask it out so the
-    // arbiter can offer the next one.  The mask is released periodically
-    // rather than held, because the reason for refusal (credit, or window
-    // remainder) changes on its own over time -- a class refused for lack of
-    // credit becomes admissible again as idleSlope accumulates.
-    reg [7:0] inhibit;
-    reg [7:0] inh_timer;
-    reg       cand_cbs_active_q;
-    always @(posedge clk or negedge rst_n)
-        if (!rst_n) cand_cbs_active_q <= 1'b0;
-        else        cand_cbs_active_q <= cand_cbs_active;
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            inhibit <= 8'h00; inh_timer <= 8'd200;
-        end else if (inh_timer == 8'd0) begin
-            inhibit   <= 8'h00;
-            inh_timer <= 8'd200;
-        end else begin
-            inh_timer <= inh_timer - 8'd1;
-            // Only credit-driven refusals inhibit.  A window-driven refusal
-            // resolves at the next gate transition on its own, and inhibiting
-            // for it measurably cost throughput (12.76% -> 12.06% on the A/B
-            // experiment) for no benefit.
-            if (cand_valid_q && !gb_allow && !busy && cand_cbs_active_q)
-                inhibit[cand_class_q] <= 1'b1;
-        end
-    end
 
     // pipeline the candidate to stay aligned with the registered guard-band verdict
     reg        cand_valid_q;
@@ -179,22 +147,12 @@ module tsn_sched_top #(
     end
 
     // ------------------------------------------------------------ guard band
-    // Credit state for the class the arbiter has nominated.  The guard band
-    // needs it to answer the second admission question: will this frame run
-    // out of credit before it runs out of window?
-    wire signed [31:0] cand_credit_q16 = $signed(credit_flat[cand_class*32 +: 32]);
-    wire [15:0] cand_inv_send  = inv_send_flat[cand_class*16 +: 16];
-    wire        cand_cbs_active = (cand_inv_send != 16'd0);
-    wire signed [15:0] cand_credit_b = cand_credit_q16[31:16];
-
     guard_band u_gb (
         .clk(clk), .rst_n(rst_n),
         .mode_adaptive(cfg_mode_adaptive), .preempt_en(cfg_preempt_en),
         .hol_valid(cand_valid), .hol_len_b(cand_len),
         .hol_preemptable(cand_preempt),
         .remaining_ns(remaining_ns),
-        .cbs_active(cand_cbs_active), .credit_b(cand_credit_b),
-        .inv_send_q8(cand_inv_send),
         .allow_start(gb_allow), .do_preempt(gb_preempt),
         .frag_bytes(gb_frag), .gb_reclaim_ns(gb_reclaim)
     );
@@ -258,7 +216,6 @@ module tsn_sched_top #(
         .gcl_mask_flat(gcl_mask_flat), .gcl_ival_flat(gcl_ival_flat),
         .idle_slope_flat(idle_slope_flat), .send_slope_flat(send_slope_flat),
         .hi_credit_flat(hi_credit_flat), .lo_credit_flat(lo_credit_flat),
-        .inv_send_flat(inv_send_flat),
         .ev_tx_done(tx_done),
         .ev_tx_express(!cfg_preempt_mask[tx_done_class]),
         .ev_tx_bytes(tx_done_bytes),

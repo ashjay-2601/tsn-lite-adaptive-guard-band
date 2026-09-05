@@ -123,3 +123,19 @@ cocotb reference model showed 90.4% of cuts land off an 8-byte boundary.
 The item is now closed. Worth noting the sequence: simulation said the mask
 did not matter, a corrected measurement said it did, and formal proved the
 state is reachable. Three methods, and only the first was wrong.
+
+## 12. Arbiter has no fallback when the guard band refuses   [found by step 19]
+tx_arbiter nominates one candidate by strict priority. If the guard band then
+refuses it, nothing transmits -- the port idles rather than offering the next
+class down. Latent until the credit-aware guard band started refusing often
+enough to matter: throughput collapsed to near zero with the feature enabled.
+Fixed with a per-class inhibit mask fed back into the arbiter's eligibility.
+
+A real architectural gap, found only because a new feature stressed a path the
+existing stimulus never did.
+
+## 13. Credit-aware cut without a progress rule shreds frames [found by step 19]
+First version of the credit-aware guard band had no minimum fragment size for
+credit-forced cuts. Because idleSlope tops credit up every clock, the class
+was never actually blocked and cut every frame into 64 B pieces: 10 878
+fragments and zero bytes delivered to best effort. Fixed with MIN_CRED_FRAG.

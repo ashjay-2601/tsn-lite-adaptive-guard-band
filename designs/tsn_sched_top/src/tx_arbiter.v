@@ -17,7 +17,6 @@ module tx_arbiter (
     input  wire [7:0]   gate_open,
     input  wire [7:0]   credit_ok,
     input  wire [7:0]   preemptable,
-    input  wire [7:0]   inhibit,        // classes the guard band just refused
     input  wire [111:0] q_len_flat,     // 8 x 14 bits
 
     output reg          cand_valid,
@@ -26,11 +25,7 @@ module tx_arbiter (
     output reg          cand_preempt
 );
 
-    // A class the guard band has just refused is masked out so the arbiter can
-    // nominate the next one down.  Without this, a refused high-priority class
-    // holds the nomination and the port goes idle -- strict priority with a
-    // single candidate has no fallback of its own.
-    wire [7:0] elig = q_nonempty & gate_open & credit_ok & ~inhibit;
+    wire [7:0] elig = q_nonempty & gate_open & credit_ok;
 
     reg [2:0] sel;
     integer i;

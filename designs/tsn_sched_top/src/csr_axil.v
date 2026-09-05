@@ -63,7 +63,6 @@ module csr_axil #(
     output wire [255:0] send_slope_flat,
     output wire [255:0] hi_credit_flat,
     output wire [255:0] lo_credit_flat,
-    output wire [127:0] inv_send_flat,   // 8 x 16b reciprocal sendSlope
 
     // ---- stats in ----
     input  wire         ev_tx_done,
@@ -79,7 +78,6 @@ module csr_axil #(
     reg [31:0] send_slope [0:7];
     reg [31:0] hi_credit  [0:7];
     reg [31:0] lo_credit  [0:7];
-    reg [15:0] inv_send   [0:7];
 
     reg [31:0] stat_bytes_tt, stat_bytes_be, stat_preempt, stat_reclaim;
     reg        stat_clr;
@@ -95,7 +93,6 @@ module csr_axil #(
             assign send_slope_flat[g*32 +: 32] = send_slope[g];
             assign hi_credit_flat [g*32 +: 32] = hi_credit[g];
             assign lo_credit_flat [g*32 +: 32] = lo_credit[g];
-            assign inv_send_flat  [g*16 +: 16] = inv_send[g];
         end
     endgenerate
 
@@ -119,7 +116,6 @@ module csr_axil #(
             for (k = 0; k < 8; k = k + 1) begin
                 idle_slope[k] <= 32'd0; send_slope[k] <= 32'd0;
                 hi_credit[k]  <= 32'h7FFF_FFFF; lo_credit[k] <= 32'h8000_0000;
-                inv_send[k]   <= 16'd0;   // 0 => class is not credit-shaped
             end
         end else begin
             cfg_apply   <= 1'b0;
@@ -155,11 +151,6 @@ module csr_axil #(
                     12'h038: cfg_ptp_rate_adj <= s_wdata[15:0];
                     12'h1??: if (s_awaddr[2]) gcl_ival[s_awaddr[6:3]] <= s_wdata;
                              else             gcl_mask[s_awaddr[6:3]] <= s_wdata[7:0];
-                    // 0x300 + 4c : 2048 / |sendSlope| in bytes/clk, Q8.8.
-                    // Zero means the class is unshaped and the credit check
-                    // is bypassed.  Software computes this reciprocal once at
-                    // configuration time so the datapath needs no divider.
-                    12'h3??: inv_send[s_awaddr[4:2]] <= s_wdata[15:0];
                     12'h2??: case (s_awaddr[7:6])
                                  2'd0: idle_slope[s_awaddr[4:2]] <= s_wdata;
                                  2'd1: send_slope[s_awaddr[4:2]] <= s_wdata;

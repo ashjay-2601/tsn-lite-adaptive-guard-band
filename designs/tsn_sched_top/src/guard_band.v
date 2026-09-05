@@ -50,15 +50,7 @@ module guard_band #(
     parameter integer MIN_FRAG_B    = 64,    // 802.3br minimum fragment
     parameter integer MAX_SDU_B     = 1522,  // static guard band basis
     parameter integer BYTES_PER_CLK = 8,     // serialiser width
-    parameter integer PIPE_LAT_NS   = 13,    // ceil(2 clocks @ 6.4 ns)
-    // Minimum useful fragment when the CREDIT limit is what forces the cut.
-    // Without this the credit-aware path degenerates: credit is topped up by
-    // idleSlope every clock, so the class is never actually blocked, and it
-    // shreds every frame into 64 B pieces while lower classes starve.  The
-    // measured failure was 10 878 fragments and zero bytes for best effort.
-    // Requiring a worthwhile chunk makes the class YIELD and bank credit
-    // instead, which is the behaviour a shaper is supposed to produce.
-    parameter integer MIN_CRED_FRAG = 256
+    parameter integer PIPE_LAT_NS   = 13     // ceil(2 clocks @ 6.4 ns)
 ) (
     input  wire         clk,
     input  wire         rst_n,
@@ -71,11 +63,6 @@ module guard_band #(
     input  wire         hol_preemptable,
 
     input  wire [31:0]  remaining_ns,
-
-    // ---- Qav credit state for the candidate class (step 19) ----------------
-    input  wire         cbs_active,      // this class is credit-shaped
-    input  wire signed [15:0] credit_b,  // current credit, whole bytes
-    input  wire [15:0]  inv_send_q8,     // 2048 / |sendSlope| in bytes/clk, Q8
 
     output reg          allow_start,
     output reg          do_preempt,
@@ -104,58 +91,12 @@ module guard_band #(
     // floor to the serialiser granularity, else the cut rounds up on the wire
     wire [13:0] fb_net = fb_hdr & ~(BYTES_PER_CLK[13:0] - 14'd1);
 
-    // ========================================================================
-    // Credit-aware admission
-    //
-    // The window check above asks only "does this frame fit before the gate
-    // shuts".  For an 802.1Qav shaped class that is not sufficient: credit
-    // drains at sendSlope while transmitting, and when it crosses zero the
-    // class must stop -- mid-frame.  The port then sits idle holding a
-    // half-sent frame, and if the gate closes during that stall the remainder
-    // is stranded until the next window.  The frame occupied the window and
-    // delivered nothing.
-    //
-    // So a second question: does this frame fit before CREDIT runs out?
-    //
-    //   clocks_to_stall = credit / |sendSlope|
-    //   bytes_to_stall  = clocks_to_stall * BYTES_PER_CLK
-    //
-    // A divider on this path would be absurd, so software supplies the
-    // reciprocal at configuration time, exactly as it already pre-scales the
-    // slopes themselves:
-    //
-    //   inv_send_q8 = 2048 / |sendSlope_bytes_per_clk|      (Q8.8)
-    //   bytes_to_stall = (credit_b * inv_send_q8) >> 8
-    //
-    // One 16x16 multiply, no division, and the arithmetic is exact for the
-    // slope values a real configuration uses.
-    //
-    // The cut point becomes min(window limit, credit limit): whichever
-    // resource runs out first decides where the frame is severed.  Both limits
-    // are floored to the serialiser width for the same reason as before.
-    // ========================================================================
-    wire signed [31:0] cb_prod   = credit_b * $signed({1'b0, inv_send_q8});
-    wire [15:0]        cred_byte = (credit_b > 0) ? cb_prod[23:8] : 16'd0;
+    wire head_ok = (fb_net >= MIN_FRAG_B[13:0]);
+    wire tail_ok = (hol_len_b > fb_net) &&
+                   ((hol_len_b - fb_net) >= MIN_FRAG_B[13:0]);
 
-    wire [13:0] cred_net = cred_byte[13:0] & ~(BYTES_PER_CLK[13:0] - 14'd1);
-
-    // the binding limit, in bytes
-    wire [13:0] lim_net  = (!cbs_active)             ? fb_net :
-                           (cred_net < fb_net)        ? cred_net : fb_net;
-
-    wire fits_win  = (tx_time <= rem_eff);
-    wire fits_cred = !cbs_active || (hol_len_b <= cred_byte[13:0]);
-    wire fits      = fits_win && fits_cred;
-
-    // credit-forced cuts must make real progress; window-forced cuts need
-    // only be legal on the wire
-    wire [13:0] min_frag_eff = (cbs_active && (cred_net < fb_net)) ?
-                               MIN_CRED_FRAG[13:0] : MIN_FRAG_B[13:0];
-    wire head_ok2 = (lim_net >= min_frag_eff);
-    wire tail_ok2 = (hol_len_b > lim_net) &&
-                    ((hol_len_b - lim_net) >= MIN_FRAG_B[13:0]);
-
-    wire cuttable = preempt_en && hol_preemptable && head_ok2 && tail_ok2;
+    wire fits     = (tx_time <= rem_eff);
+    wire cuttable = preempt_en && hol_preemptable && head_ok && tail_ok;
 
     wire allow_adp = hol_valid && (fits || cuttable);
     wire allow_sta = hol_valid && (rem_eff >= STATIC_TXT[31:0]);
@@ -169,7 +110,7 @@ module guard_band #(
         end else begin
             allow_start   <= mode_adaptive ? allow_adp : allow_sta;
             do_preempt    <= mode_adaptive && allow_adp && !fits && cuttable;
-            frag_bytes    <= lim_net;
+            frag_bytes    <= fb_net;
             // instrumentation: window time the static policy would have blanked
             gb_reclaim_ns <= (mode_adaptive && allow_adp && !allow_sta) ?
                              rem_eff : 32'd0;

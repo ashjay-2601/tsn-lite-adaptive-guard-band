@@ -220,3 +220,19 @@ system test that programs real slopes over AXI4-Lite:
 | 40% | 40.66% |
 | 60% | 60.99% |
 | 80% | 81.28% |
+
+## Physical implementation
+
+Hardened with LibreLane 3.1 / OpenROAD on Sky130A (open 130 nm academic node,
+not a production process). Scheduler subsystem only — pure standard cell, no
+memory macros.
+
+| | |
+|---|---|
+| Target clock | FILL IN |
+| Achieved | FILL IN |
+| Die area | FILL IN |
+| DRC | FILL IN |
+| LVS | FILL IN |
+| WNS / TNS | FILL IN |
+| Critical path | FILL IN |
