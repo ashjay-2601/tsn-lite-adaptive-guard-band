@@ -6,3 +6,7 @@ obj_dir/
 __pycache__/
 results/*.vvp
 formal/gb_props_*/
+runs/
+*.gds
+runs/
+*.gds
