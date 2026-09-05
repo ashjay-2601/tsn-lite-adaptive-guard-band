@@ -54,6 +54,9 @@ module csr_axil #(
     output reg  [47:0]  cfg_base_time,
     output reg          cfg_apply,
     output reg  [7:0]   cfg_preempt_mask,
+    output reg          cfg_ptp_set,          // pulse
+    output reg  [47:0]  cfg_ptp_time,
+    output reg signed [15:0] cfg_ptp_rate_adj,
     output wire [N_ENTRY*8-1:0]  gcl_mask_flat,
     output wire [N_ENTRY*32-1:0] gcl_ival_flat,
     output wire [255:0] idle_slope_flat,
@@ -104,6 +107,8 @@ module csr_axil #(
             cfg_enable <= 1'b0; cfg_mode_adaptive <= 1'b0; cfg_preempt_en <= 1'b0;
             cfg_gcl_len <= 5'd1; cfg_base_time <= 48'd0; cfg_apply <= 1'b0;
             cfg_preempt_mask <= 8'h00;
+            cfg_ptp_set <= 1'b0; cfg_ptp_time <= 48'd0;
+            cfg_ptp_rate_adj <= 16'sd0;
             s_bvalid <= 1'b0; s_bresp <= 2'b00; stat_clr <= 1'b0;
             for (k = 0; k < N_ENTRY; k = k + 1) begin
                 gcl_mask[k] <= 8'hFF; gcl_ival[k] <= 32'd1000;
@@ -113,15 +118,13 @@ module csr_axil #(
                 hi_credit[k]  <= 32'h7FFF_FFFF; lo_credit[k] <= 32'h8000_0000;
             end
         end else begin
-            cfg_apply <= 1'b0;
-            stat_clr  <= 1'b0;
+            cfg_apply   <= 1'b0;
+            stat_clr    <= 1'b0;
+            cfg_ptp_set <= 1'b0;
             if (s_bvalid && s_bready) s_bvalid <= 1'b0;
 
             if (wr_fire) begin
                 s_bvalid <= 1'b1;
-                // 32-bit access only.  Partial-strobe writes would need a
-                // read-modify-write per register; rejecting them is cheaper
-                // and makes the software contract explicit.
                 s_bresp  <= (s_wstrb == 4'hF) ? 2'b00 : 2'b10;
                 if (s_wstrb != 4'hF) begin
                 end else
@@ -136,6 +139,16 @@ module csr_axil #(
                              end
                     12'h010: cfg_preempt_mask <= s_wdata[7:0];
                     12'h014: stat_clr <= s_wdata[0];
+                    // IEEE 1588 hooks: coarse time set and servo rate adjust.
+                    // These were tied off at the top level, which capped
+                    // ptp_clock toggle coverage at ~29% -- an unused feature
+                    // in an instantiated module, not a test gap.
+                    12'h030: cfg_ptp_time[31:0]  <= s_wdata;
+                    12'h034: begin
+                             cfg_ptp_time[47:32] <= s_wdata[15:0];
+                             cfg_ptp_set <= 1'b1;
+                             end
+                    12'h038: cfg_ptp_rate_adj <= s_wdata[15:0];
                     12'h1??: if (s_awaddr[2]) gcl_ival[s_awaddr[6:3]] <= s_wdata;
                              else             gcl_mask[s_awaddr[6:3]] <= s_wdata[7:0];
                     12'h2??: case (s_awaddr[7:6])
@@ -170,6 +183,8 @@ module csr_axil #(
                     12'h024: s_rdata <= stat_bytes_be;
                     12'h028: s_rdata <= stat_preempt;
                     12'h02C: s_rdata <= stat_reclaim;
+                    12'h038: s_rdata <= {{16{cfg_ptp_rate_adj[15]}},
+                                          cfg_ptp_rate_adj};
                     default: s_rdata <= 32'hDEAD_BEEF;
                 endcase
             end

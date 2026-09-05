@@ -66,6 +66,9 @@ module tsn_sched_top #(
     wire [4:0]  cfg_gcl_len;
     wire [47:0] cfg_base_time;
     wire [7:0]  cfg_preempt_mask;
+    wire        cfg_ptp_set;
+    wire [47:0] cfg_ptp_time;
+    wire signed [15:0] cfg_ptp_rate_adj;
     wire [N_ENTRY*8-1:0]  gcl_mask_flat;
     wire [N_ENTRY*32-1:0] gcl_ival_flat;
     wire [255:0] idle_slope_flat, send_slope_flat, hi_credit_flat, lo_credit_flat;
@@ -84,7 +87,8 @@ module tsn_sched_top #(
     // ------------------------------------------------------------------ time
     ptp_clock #(.INCR_Q16(PTP_INCR_Q16)) u_ptp (
         .clk(clk), .rst_n(rst_n),
-        .set_valid(1'b0), .set_time_ns(48'd0), .rate_adj_q16(16'sd0),
+        .set_valid(cfg_ptp_set), .set_time_ns(cfg_ptp_time),
+        .rate_adj_q16(cfg_ptp_rate_adj),
         .time_ns(time_ns), .time_q16()
     );
 
@@ -207,6 +211,8 @@ module tsn_sched_top #(
         .cfg_preempt_en(cfg_preempt_en), .cfg_gcl_len(cfg_gcl_len),
         .cfg_base_time(cfg_base_time), .cfg_apply(cfg_apply),
         .cfg_preempt_mask(cfg_preempt_mask),
+        .cfg_ptp_set(cfg_ptp_set), .cfg_ptp_time(cfg_ptp_time),
+        .cfg_ptp_rate_adj(cfg_ptp_rate_adj),
         .gcl_mask_flat(gcl_mask_flat), .gcl_ival_flat(gcl_ival_flat),
         .idle_slope_flat(idle_slope_flat), .send_slope_flat(send_slope_flat),
         .hi_credit_flat(hi_credit_flat), .lo_credit_flat(lo_credit_flat),

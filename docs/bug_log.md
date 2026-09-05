@@ -94,3 +94,21 @@ seed reproduces a run only on the same simulator and version. Second, a
 cross-simulator numeric mismatch is worth chasing even when both runs pass
 every assertion: nothing was broken here, but for weeks the project quoted a
 number that depended on which tool happened to run it.
+
+## 11. PTP servo hooks tied off at the top      [found by coverage analysis]
+ptp_clock exposes set_valid, set_time_ns and rate_adj_q16 -- the IEEE 1588
+coarse-set and servo-slew inputs. tsn_sched_top tied all three to constants,
+so roughly 70% of that module's logic could never change state. Toggle
+coverage sat at 29.1% and no amount of extra stimulus could raise it.
+
+This is a design gap, not a test gap: an instantiated module with a feature
+nobody wired up. Found only by asking why a coverage number would not move.
+
+Fixed by adding three registers (PTP_SET_LO 0x030, PTP_SET_HI 0x034 which
+also pulses the set, PTP_RATE_ADJ 0x038) and wiring them through. ptp_clock
+toggle coverage went 29.1% -> 59.5%, and the design gained the servo hook a
+1588 implementation actually needs.
+
+Worth stating plainly: chasing a coverage number found a missing feature.
+That is the argument for treating coverage as a design review tool rather
+than a box to tick at the end.

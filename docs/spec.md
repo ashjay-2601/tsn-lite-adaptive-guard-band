@@ -20,6 +20,9 @@
 | 0x00C | BASE_HI | RW | ns[47:32]; write pulses APPLY |
 | 0x010 | PREEMPT_MASK | RW | [7:0] preemptable classes |
 | 0x014 | STAT_CLR | W | write 1 to clear statistics |
+| 0x030 | PTP_SET_LO | RW | coarse time set, ns[31:0] |
+| 0x034 | PTP_SET_HI | RW | ns[47:32]; write applies the set |
+| 0x038 | PTP_RATE_ADJ | RW | signed [15:0] servo slew, Q16.16 ns/clk addend |
 | 0x020 | STAT_BYTES_TT | RO | express bytes transmitted |
 | 0x024 | STAT_BYTES_BE | RO | preemptable bytes transmitted |
 | 0x028 | STAT_PREEMPT | RO | fragmentation events |
@@ -32,9 +35,6 @@
 | 0x2C0+4c | CBS[c].LO_CREDIT | RW | Q16.16 clamp |
 
 Unmapped writes return SLVERR. Unmapped reads return 0xDEADBEEF.
-
-All registers are 32-bit access only. Writes with WSTRB != 4'hF are
-rejected with SLVERR and have no effect.
 
 ## 3. Programming sequence
 1. Write GCL_LEN, then each GCL[i].MASK / GCL[i].IVAL.
