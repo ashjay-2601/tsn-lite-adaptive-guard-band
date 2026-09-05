@@ -112,3 +112,14 @@ toggle coverage went 29.1% -> 59.5%, and the design gained the servo hook a
 Worth stating plainly: chasing a coverage number found a missing feature.
 That is the argument for treating coverage as a design review tool rather
 than a box to tick at the end.
+
+## Formal closure of the alignment question              [step 18]
+The `cover (do_preempt && (fb_hdr != fb_net))` statement — a cut point that
+the 8-byte alignment mask actually changes — is reachable at step 2 under
+k-induction. That is a third independent confirmation that the mask is
+load-bearing, after the original (circular) measurement said otherwise and the
+cocotb reference model showed 90.4% of cuts land off an 8-byte boundary.
+
+The item is now closed. Worth noting the sequence: simulation said the mask
+did not matter, a corrected measurement said it did, and formal proved the
+state is reachable. Three methods, and only the first was wrong.

@@ -5,3 +5,4 @@ obj_dir/
 *.log
 __pycache__/
 results/*.vvp
+formal/gb_props_*/

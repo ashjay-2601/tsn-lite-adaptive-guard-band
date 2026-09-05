@@ -1,13 +1,28 @@
+# Three tasks:
+#   bmc    bounded model check to depth 40 -- finds shallow counterexamples
+#   cover  proves the interesting states are REACHABLE, so the assertions
+#          above are not passing vacuously.  A bmc-only run that never
+#          reaches do_preempt would report PASS while proving nothing.
+#   prove  unbounded k-induction -- a real proof rather than a bounded search
+[tasks]
+bmc
+cover
+prove
+
 [options]
-mode bmc
-depth 40
+bmc:   mode bmc
+bmc:   depth 40
+cover: mode cover
+cover: depth 40
+prove: mode prove
+prove: depth 20
 multiclock off
 
 [engines]
-smtbmc yices
+smtbmc z3
 
 [script]
-read -formal ../rtl/guard_band.v
+read -formal guard_band.v
 read -formal gb_props.sv
 prep -top gb_props
 
